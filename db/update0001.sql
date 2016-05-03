@@ -10,7 +10,8 @@ CREATE TABLE connections (
     type text,
     syncinterval integer,
     lastsynced integer,
-    ctag text
+    ctag text,
+    active integer
 );
 
 CREATE TABLE calendarobjects (

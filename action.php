@@ -21,12 +21,16 @@ class action_plugin_webdavclient extends DokuWiki_Action_Plugin {
    
   // Register our hooks 
   function register(Doku_Event_Handler $controller) {
-    $controller->register_hook('INDEXER_TASKS_RUN', 'BEFORE', $this, 'handle_indexer_sync');
-    //$controller->register_hook('TPL_ACT_RENDER', 'AFTER', $this, 'handle_indexer_sync');
+    //controller->register_hook('INDEXER_TASKS_RUN', 'BEFORE', $this, 'handle_indexer_sync');
+    $controller->register_hook('TPL_ACT_RENDER', 'AFTER', $this, 'handle_indexer_sync');
   }
   
   function handle_indexer_sync(&$event, $param)
   {
+      // Check if we use an external CRON or WebCRON instead
+      if($this->getConf('use_cron') === 1)
+        return;
+
       // Try to sync the connectins; if one connection synced successfully,
       // we stop the propagation
       if($this->hlp->indexerSyncAllConnections() === true)
