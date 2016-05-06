@@ -257,6 +257,255 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   }
   
   /**
+   * Query a Server and do WebDAV auto discovery.
+   * Currently, we do the follwing:
+   *   1) Do a PROPFIND on / and try to follow .well-known URLs
+   *   2) Prefer HTTPS wherever possible
+   *   3) Uniquify the results
+   *   4) Do a PROPFIND on the resulting URLs for the calendars/addressbook homes
+   *   5) Do a PROPFIND on the resulting home sets for calendars/addressbooks
+   *   6) Filter for calendards/addressbooks we support and
+   *   7) Return the results
+   * 
+   * @param string $uri The URI of the server
+   * @param string $username The username for login
+   * @param string $password The password for login
+   * 
+   * @return An array containing calendards and addressbooks that were found 
+   */
+  public function queryServer($uri, $username, $password)
+  {
+      global $conf;
+      if($conf['allowdebug'])
+        dbglog('queryServer: '.$uri);
+      
+      $webdavobjects = array();
+      $webdavobjects['calendars'] = array();
+      $webdavobjects['addressbooks'] = array();
+      
+      // Remove the scheme, if given
+      $pos = strpos($uri, '//');
+      if($pos !== false)
+        $uri = substr($uri, $pos+2);
+      
+      // We try the given URL, https first
+      // as well as the .well-known URLs
+      $urilist = array('https://'.$uri, 'http://'.$uri,
+                       'https://'.$uri.'/.well-known/caldav', 
+                       'http://'.$uri.'/.well-known/caldav',
+                       'https://'.$uri.'/.well-known/carddav',
+                       'http://'.$uri.'/.well-known/carddav');
+
+      $discoveredUris = array();
+      $max_redir = 3;
+      $redirects = 0;
+      $data = $this->buildPropfind(array('D:current-user-principal'));
+      $conn = array();
+      $conn['uri'] = $urilist[0];
+      $conn['username'] = $username;
+      $conn['password'] = $password;
+      $this->setupClient($conn, strlen($data), ' 0', 
+                         'application/xml; charset=utf-8', array(), 
+                         0); // Don't follow redirects here
+      
+      // Try all URLs, following up to 3 redirects and sending
+      // a PROPFIND each time
+      while(count($urilist) > 0)
+      {
+          $uri = array_shift($urilist);
+          $this->client->sendRequest($uri, $data, 'PROPFIND');
+          switch($this->client->status)
+          {
+              case 301:
+              case 302:
+              case 303:
+              case 307:
+              case 308:
+                // We follow the redirect with a PROPFIND, even if this is INVALID as per RFC
+                dbglog('Redirect, following...');
+                if($redirects < $max_redir)
+                {
+                    array_unshift($urilist, $this->client->resp_headers['location']);
+                    $redirects++;
+                }
+                break;
+              case 207:
+                // This is a success
+                $redirects = 0;
+                dbglog('Found!');
+                $response = $this->parseResponse();
+                foreach($response as $href => $params)
+                {
+                    $components = parse_url($uri);
+                    if(isset($params['current-user-principal']['href']))
+                      $discoveredUris[] = $components['scheme'].'://'.
+                                          $components['host'].
+                                          $params['current-user-principal']['href']; 
+                }
+                break;
+              default:
+                $redirects = 0;
+                dbglog('Probably an error, continuing...');
+                break;
+          }
+      }
+      // Remove Duplicates
+      $discoveredUris = $this->postprocessUris($discoveredUris);
+      $calendarhomes = array();
+      $addressbookhomes = array();
+      
+      // Go through all discovered URLs and do a PROPFIND for calendar-home-set
+      // and for addressbook-home-set
+      foreach($discoveredUris as $uri)
+      {
+          $data = $this->buildPropfind(array('C:calendar-home-set'), 
+                                       array('C' => 'urn:ietf:params:xml:ns:caldav'));
+          $this->setupClient($conn, strlen($data), ' 0');
+          $this->client->sendRequest($uri, $data, 'PROPFIND');
+          if($this->client->status == 207)
+          {
+              $response = $this->parseResponse();
+              foreach($response as $href => $params)
+              {
+                if(isset($params['calendar-home-set']['href']))
+                {
+                    $components = parse_url($uri);
+                    $calendarhomes[] = $components['scheme'].'://'.
+                                       $components['host'].
+                                       $params['calendar-home-set']['href'];
+                }
+              }
+          }
+          
+          $data = $this->buildPropfind(array('C:addressbook-home-set'),
+                                       array('C' => 'urn:ietf:params:xml:ns:carddav'));
+          $this->setupClient($conn, strlen($data), ' 0');
+          $this->client->sendRequest($uri, $data, 'PROPFIND');
+          if($this->client->status == 207)
+          {
+              $response = $this->parseResponse();
+              foreach($response as $href => $params)
+              {
+                if(isset($params['addressbook-home-set']['href']))
+                {
+                  $components = parse_url($uri);
+                  $addressbookhomes[] = $components['scheme'].'://'.
+                                        $components['host'].
+                                        $params['addressbook-home-set']['href'];
+                }
+              }
+          }
+      }
+      
+      // Now we need to query the addressbook list for address books
+      // and the calendar list for calendars
+      
+      foreach($calendarhomes as $uri)
+      {
+          $data = $this->buildPropfind(array('D:resourcetype', 'D:displayname', 
+                                      'CS:getctag', 'C:supported-calendar-component-set'), 
+                                      array('C' => 'urn:ietf:params:xml:ns:caldav', 
+                                      'CS' => 'http://calendarserver.org/ns/'));
+          $this->setupClient($conn, strlen($data), '1');
+          $this->client->sendRequest($uri, $data, 'PROPFIND');
+          $response = $this->parseResponse();
+          $webdavobjects['calendars'] = $this->getSupportedCalendarsFromDavResponse($uri, $response);
+      }
+      
+      foreach($addressbookhomes as $uri)
+      {
+          $data = $this->buildPropfind(array('D:resourcetype', 'D:displayname', 'CS:getctag'),
+                                      array('CS' => 'http://calendarserver.org/ns/'));
+          $this->setupClient($conn, strlen($data), '1');
+          $this->client->sendRequest($uri, $data, 'PROPFIND');
+          $response = $this->parseResponse();
+          $webdavobjects['addressbooks'] = $this->getSupportedAddressbooksFromDavResponse($uri, $response);
+      }
+      
+      return $webdavobjects;
+      
+  }
+
+  /**
+   * Filter the DAV response by calendars we support
+   * 
+   * @param string $uri The request URI where the PROPFIND was done
+   * @param array $response The response from the PROPFIND
+   * 
+   * @return array An array containing URL => Displayname
+   */
+  private function getSupportedCalendarsFromDavResponse($uri, $response)
+  {
+      $calendars = array();
+      foreach($response as $href => $data)
+      {
+          if(!isset($data['resourcetype']['calendar']))
+            continue;
+          if(!isset($data['supported-calendar-component-set']['comp']['name']))
+            continue;
+          if((is_array($data['supported-calendar-component-set']['comp']['name']) &&
+             !in_array('VEVENT', $data['supported-calendar-component-set']['comp']['name'])) ||
+             (!is_array($data['supported-calendar-component-set']['comp']['name']) &&
+             $data['supported-calendar-component-set']['comp']['name'] != 'VEVENT'))
+            continue;
+          
+          $components = parse_url($uri);
+          $href = $components['scheme'].'://'.$components['host'].$href;
+          $calendars[$href] = $data['displayname'];
+      }
+      return $calendars;
+  }
+  
+  /**
+   * Filter the DAV response by addressbooks we support
+   * 
+   * @param string $uri The request URI where the PROPFIND was done
+   * @param array $response The response from the PROPFIND
+   * 
+   * @return array An array containing URL => Displayname
+   */
+  private function getSupportedAddressbooksFromDavResponse($uri, $response)
+  {
+      $addressbooks = array();
+      foreach($response as $href => $data)
+      {
+          if(!isset($data['resourcetype']['addressbook']))
+            continue;
+          $components = parse_url($uri);
+          $href = $components['scheme'].'://'.$components['host'].$href;
+          $addressbooks[$href] = $data['displayname'];
+      }
+      return $addressbooks;
+  }
+
+  /**
+   * Remove duplicate URLs from the list and prefere HTTPS if both are given
+   * 
+   * @param array $urilist The list of URLs to process
+   * 
+   * @return array The processed URI list
+   */
+  private function postprocessUris($urilist)
+  {
+      $discoveredUris = array();
+      foreach($urilist as $uri)
+      {
+          $href = str_replace(array('http', 'https'), '', $uri);
+          if(in_array('http'.$href, $urilist) && in_array('https'.$href, $urilist))
+          {
+              if(!in_array('https'.$href, $discoveredUris))
+                $discoveredUris[] = 'https'.$href;
+          }
+          else 
+          {
+              if(!in_array($uri, $discoveredUris))
+                $discoveredUris[] = $uri;
+          }
+      }
+      return $discoveredUris;
+  }
+  
+  /**
    * Sync a single connection if required.
    * Sync requirement is checked based on
    *   1) Time
@@ -417,15 +666,15 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   {
       if($conn['type'] === 'contacts')
       {
-        $data = $this->buildReport('urn:ietf:params:xml:ns:carddav', 
-                                   'C:addressbook-multiget', array('D:getetag', 
+        $data = $this->buildReport('C:addressbook-multiget', array('C' => 'urn:ietf:params:xml:ns:carddav'),
+                                   array('D:getetag', 
                                    'C:address-data'), array(), 
                                    $href);
       }
       elseif($conn['type'] === 'calendar')
       {
-        $data = $this->buildReport('urn:ietf:params:xml:ns:caldav', 
-                                   'C:calendar-multiget', array('D:getetag', 
+        $data = $this->buildReport('C:calendar-multiget', array('C' => 'urn:ietf:params:xml:ns:caldav'), 
+                                   array('D:getetag', 
                                    'C:calendar-data'),
                                    array(),
                                    $href);
@@ -448,15 +697,15 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   {
       if($conn['type'] === 'contacts')
       {
-        $data = $this->buildReport('urn:ietf:params:xml:ns:carddav', 
-                                   'C:addressbook-multiget', array('D:getetag', 
+        $data = $this->buildReport('C:addressbook-multiget', array('C' => 'urn:ietf:params:xml:ns:carddav'), 
+                                   array('D:getetag', 
                                    'C:address-data'), array(), 
                                    array_values($etags));
       }
       elseif($conn['type'] === 'calendar')
       {
-        $data = $this->buildReport('urn:ietf:params:xml:ns:caldav', 
-                                   'C:calendar-multiget', array('D:getetag', 
+        $data = $this->buildReport('C:calendar-multiget', array('C' => 'urn:ietf:params:xml:ns:caldav'), 
+                                   array('D:getetag', 
                                    'C:calendar-data'),
                                    array(),
                                    array_values($etags));
@@ -505,14 +754,17 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    * @param string $depth (Optional) The Depth parameter
    * @param string $ct (Optional) The Content-Type
    * @param array $headers (Optional) Additional headers
+   * @param int $redirect (Optional) Number of redirects to follow
    */
   private function setupClient($conn, $cl = null, $depth = null, 
-                               $ct = 'application/xml; charset=utf-8', $headers = array())
+                               $ct = 'application/xml; charset=utf-8', $headers = array(),
+                               $redirect = 3)
   {
       $this->client->debug = true;
       $this->client->user = $conn['username'];
       $this->client->pass = $conn['password'];
       $this->client->http = '1.1';
+      $this->client->max_redirect = $redirect;
       // Restore the Client's default headers, otherwise we might keep
       // old headers for later requests
       $this->client->headers = $this->client_headers;
@@ -567,13 +819,13 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       global $conf;
       if($conn['type'] === 'contacts')
       {
-        $data = $this->buildReport('urn:ietf:params:xml:ns:carddav', 
-                                   'C:addressbook-query', array('D:getetag'));
+        $data = $this->buildReport('C:addressbook-query', array('C' => 'urn:ietf:params:xml:ns:carddav'),
+                                   array('D:getetag'));
       }
       elseif($conn['type'] === 'calendar')
       {
-        $data = $this->buildReport('urn:ietf:params:xml:ns:caldav', 
-                                   'C:calendar-query', array('D:getetag'),
+        $data = $this->buildReport('C:calendar-query', array('C' => 'urn:ietf:params:xml:ns:caldav'), 
+                                   array('D:getetag'),
                                    array('C:comp-filter' => 'VCALENDAR'));
       }
       else 
@@ -632,14 +884,59 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
               // We parse here all props that succeeded and ignore the failed ones
               if($status === '200')
               {
-                  foreach($response->propstat->prop->children() as $child)
-                  {
-                      $data[$href][$child->getName()] = trim((string)$child, '"');
-                  }
+                  $data[$href] = $this->recursiveXmlToArray($response->propstat->prop->children());
+
               }
           }
       }
       return $data;
+  }
+
+  /**
+   * Recursively convert XML Tags and attributes to an array
+   * 
+   * @param mixed $objects SimpleXML Objects to recurse
+   * 
+   * @return array An array containing the processed data
+   */
+  private function recursiveXmlToArray($objects)
+  {
+      $ret = array();
+      foreach($objects as $object)
+      {
+          if($object->count() > 0)
+          {
+            $ret[$object->getName()] = $this->recursiveXmlToArray($object->children());
+          }
+          elseif(!is_null($object->attributes()) && (count($object->attributes()) > 0))
+          {
+            if(!is_array($ret[$object->getName()]))
+              $ret[$object->getName()] = array();
+            foreach($object->attributes() as $key => $val)
+            {
+              if(isset($ret[$object->getName()][(string)$key]) && 
+                !is_array($ret[$object->getName()][(string)$key]))
+              {
+                $ret[$object->getName()][(string)$key] = 
+                        array($ret[$object->getName()][(string)$key], trim((string)$val, '"'));
+              }
+              elseif(isset($ret[$object->getName()][(string)$key]) &&
+                is_array($ret[$object->getName()][(string)$key]))
+              {
+                $ret[$object->getName()][(string)$key][] = trim((string)$val, '"');
+              }
+              else 
+              {
+                $ret[$object->getName()][(string)$key] = trim((string)$val, '"');
+              }
+            }
+          }
+          else
+          {
+            $ret[$object->getName()] = trim((string)$object, '"');
+          }
+      }
+      return $ret;
   }
 
   /**
@@ -651,7 +948,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   private function getCollectionStatusForConnection($conn)
   {
       global $conf;
-      $data = $this->buildPropfind(array('d:displayname', 'cs:getctag'));
+      $data = $this->buildPropfind(array('D:displayname', 'CS:getctag', 'D:sync-token'), array('CS' => 'http://calendarserver.org/ns/'));
       $this->setupClient($conn, strlen($data), ' 0');
 
       $resp = $this->client->sendRequest($conn['uri'], $data, 'PROPFIND');
@@ -850,19 +1147,21 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    * Helper function to generate a PROPFIND request
    * 
    * @param array $props The properties to retrieve
+   * @param array $ns Any custom namespaces used
    * 
    * @return String containing the XML
    */
-  private function buildPropfind($props)
+  private function buildPropfind($props, $ns = array())
   {
       $xml = new XMLWriter();
       $xml->openMemory();
       $xml->setIndent(4);
       $xml->startDocument('1.0', 'utf-8');
-      $xml->startElement('d:propfind');
-      $xml->writeAttribute('xmlns:d', 'DAV:');
-      $xml->writeAttribute('xmlns:cs', 'http://calendarserver.org/ns/');
-      $xml->startElement('d:prop');
+      $xml->startElement('D:propfind');
+      $xml->writeAttribute('xmlns:D', 'DAV:');
+      foreach($ns as $key => $val)
+        $xml->writeAttribute('xmlns:'.$key, $val);
+      $xml->startElement('D:prop');
         foreach($props as $prop)
           $xml->writeElement($prop);
       $xml->endElement();
@@ -881,7 +1180,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    * 
    * @return String containing the XML
    */
-  private function buildReport($ns, $op, $props = array(), $filters = array(), $hrefs = array())
+  private function buildReport($op, $ns = array(), $props = array(), $filters = array(), $hrefs = array())
   {
       $xml = new XMLWriter();
       $xml->openMemory();
@@ -889,7 +1188,8 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       $xml->startDocument('1.0', 'utf-8');
       $xml->startElement($op);
           $xml->writeAttribute('xmlns:D', 'DAV:');
-          $xml->writeAttribute('xmlns:C', $ns);
+          foreach($ns as $key => $val)
+            $xml->writeAttribute('xmlns:'.$key, $val);
           $xml->startElement('D:prop');
               foreach($props as $prop)
               {
@@ -939,6 +1239,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       global $conf;
       if($conf['allowdebug'])
         dbglog('IndexerSyncAllConnections');
+
       $connections = $this->getConnections();
       foreach($connections as $connection)
       {
