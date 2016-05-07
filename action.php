@@ -21,8 +21,8 @@ class action_plugin_webdavclient extends DokuWiki_Action_Plugin {
    
   // Register our hooks 
   function register(Doku_Event_Handler $controller) {
-    //controller->register_hook('INDEXER_TASKS_RUN', 'BEFORE', $this, 'handle_indexer_sync');
-    $controller->register_hook('TPL_ACT_RENDER', 'AFTER', $this, 'handle_indexer_sync');
+    $controller->register_hook('INDEXER_TASKS_RUN', 'BEFORE', $this, 'handle_indexer_sync');
+    //$controller->register_hook('TPL_ACT_RENDER', 'AFTER', $this, 'handle_indexer_sync');
   }
   
   function handle_indexer_sync(&$event, $param)
