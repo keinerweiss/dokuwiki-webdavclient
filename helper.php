@@ -14,6 +14,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   protected $sqlite = null;
   protected $client = null;
   protected $client_headers = '';
+  protected $lastErr = '';
   
   /**
     * Constructor to load the configuration
@@ -25,6 +26,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
     {
         if($conf['allowdebug'])
             dbglog('This plugin requires the sqlite plugin. Please install it.');
+        $this->lastErr = 'This plugin requires the sqlite plugin. Please install it.';
         msg('This plugin requires the sqlite plugin. Please install it.');
         return;
     }
@@ -34,11 +36,22 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
     {
         if($conf['allowdebug'])
             dbglog('Error initialising the SQLite DB for webdavclient');
+        $this->lastErr = 'Error initialising the SQLite DB for webdavclient';
         return;
     }
     
     $this->client = new DokuHTTPClient();
     $client_headers = $this->client->headers;
+  }
+  
+  /**
+   * Get the last error message, if any
+   * 
+   * @return string The last error message
+   */
+  public function getLastError()
+  {
+      return $this->lastErr;
   }
   
   /**
@@ -61,6 +74,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
           $this->syncConnection($conn['id'], true);
           return true;
       }
+      $this->lastErr = 'Error adding calendar entry, server reported status '.$this->client->status;
       return false;
   }
   
@@ -86,6 +100,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
           $this->syncConnection($conn['id'], true);
           return true;
       }
+      $this->lastErr = 'Error editing calendar entry, server reported status '.$this->client->status;
       return false;
   }
   
@@ -111,6 +126,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
           $this->syncConnection($conn['id'], true);
           return true;
       }
+      $this->lastErr = 'Error deleting calendar entry, server reported status '.$this->client->status;
       return false;
   }
   
@@ -124,6 +140,23 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       $query = "SELECT calendardata, calendarid, componenttype, etag, uri FROM calendarobjects WHERE uid = ?";
       $res = $this->sqlite->query($query, $uid);
       return $this->sqlite->res2row($res);
+  }
+  
+  /**
+   * Delete a connection
+   * 
+   * @param int $connectionId The connection ID to delete
+   * 
+   * @return boolean True on success, otherwise false
+   */
+  public function deleteConnection($connectionId)
+  {
+      $query = "DELETE FROM connections WHERE id = ?";
+      $res = $this->sqlite->query($query, $connectionId);
+      if($res !== false)
+        return true;
+      $this->lastErr = "Error deleting connection.";
+      return false;
   }
   
   /**
@@ -170,6 +203,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   public function editAddressbookEntry($connectionId, $uid, $data, $dwuser = null)
   {
+      $this->lastErr = "Not implemented.";
       return false;
   }
   
@@ -178,6 +212,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   public function deleteAddressbookEntry($connectionId, $uid, $dwuser = null)
   {
+      $this->lastErr = "Not implemented";
       return false;
   }
   
@@ -211,13 +246,16 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    * 
    * @return true on success, otherwise false
    */
-  public function addConnection($uri, $username, $password, $displayname, $description, $type, $syncinterval = 3600, $write = false, $active = true, $dwuser = null)
+  public function addConnection($uri, $username, $password, $displayname, $description, $type, $syncinterval = '3600', $write = false, $active = true, $dwuser = null)
   {
       $query = "INSERT INTO connections (uri, displayname, description, username, password, dwuser, type, syncinterval, lastsynced, active, write) ".
                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
-      $res = $this->sqlite->query($query, $uri, $displayname, $description, $username, $password, $dwuser, $type, $syncinterval, 0, $active, $write);
+      $res = $this->sqlite->query($query, $uri, $displayname, $description, $username, $password, $dwuser, $type, $syncinterval, '0', $active ? '1' : '0', $write ? '1' : '0');
       if($res === false)
+      {
+        $this->lastErr = "Error inserting values into SQLite DB";
         return false;
+      }
       
       // Retrieve the connection ID
       $query = "SELECT id FROM connections WHERE uri = ? AND displayname = ? AND description = ? AND username = ? AND password = ? AND dwuser = ? AND type = ? and syncinterval = ? and lastsynced = 0 AND active = ? AND write = ?";
@@ -227,6 +265,30 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       if(isset($row['id']))
         return $row['id'];
       
+      $this->lastErr = "Error retrieving new connection ID from SQLite DB";
+      return false;
+  }
+  
+  /**
+   * Modify an existing connection, overwriting previously defined values
+   * 
+   * @param int $connId The connection ID to modify
+   * @param string $uri The URI to set
+   * @param string $displayname The new Display Name
+   * @param string $syncinterval The sync interval
+   * @param string $write If it should be writable
+   * @param string $active If it is active
+   * 
+   * @return boolean True on success, otherwise false
+   */
+  public function modifyConnection($connId, $uri, $displayname, $syncinterval, $write, $active)
+  {
+      $query = "UPDATE connections SET uri = ?, displayname = ?, syncinterval = ?, write = ?, active = ? WHERE id = ?";
+      $res = $this->sqlite->query($query, $uri, $displayname, $syncinterval, $write, $active, $connId);
+      if($res !== false)
+        return true;
+
+      $this->lastErr = "Error modifying connection information";
       return false;
   }
   
@@ -513,17 +575,22 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    *   3) ETag
    * 
    * @param int $connectionId The connection ID to work with
+   * @param boolean $force Force sync, even if the interval hasn't passed
+   * @param boolean $overrideActive Force sync, even if the connection is inactive
    * 
    * @return true on success, otherwise false
    */
-  public function syncConnection($connectionId, $force = false)
+  public function syncConnection($connectionId, $force = false, $overrideActive = false)
   {
       global $conf;
       if($conf['allowdebug'])
         dbglog('syncConnection: '.$connectionId);
       $conn = $this->getConnection($connectionId);
       if($conn === false)
+      {
+        $this->lastErr = "Error retrieving connection information from SQLite DB";
         return false;
+      }
       
       if($conf['allowdebug'])
         dbglog('Got connection information for connectionId: '.$connectionId);
@@ -533,14 +600,16 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       {
         if($conf['dbglog'])
           dbglog('Sync not required (time)');
+        $this->lastErr = "Sync not required (time)";
         return false;
       }
       
       // Active?
-      if($conn['active'] !== '1')
+      if(($conn['active'] !== '1') && !$overrideActive)
       {
         if($conf['allowdebug'])
           dbglog('Connection not active.');
+        $this->lastErr = "Connection not active";
         return false;
       }
       
@@ -548,7 +617,10 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
         dbglog('Sync required for ConnectionID: '.$connectionId);
       
       if(($conn['type'] !== 'contacts') && ($conn['type'] !== 'calendar'))
+      {
+        $this->lastErr = "Unsupported connection type found: ".$conn['type'];
         return false;
+      }
       
       // Perform the sync
 
@@ -562,6 +634,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
           {
             if($conf['allowdebug'])
               dbglog('CTags match, no need to sync');
+            $this->lastErr = "CTags match, there is no need to sync";
             return false;
           }
       }
@@ -570,25 +643,40 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       // This also works if the ctag is not supported
       
       $remoteEtags = $this->getRemoteETagsForConnection($conn);
+      if($conf['allowdebug'])
+        dbglog($remoteEtags);
       if($remoteEtags === false)
+      {
+        $this->lastErr = "Fetching ETags from remote server failed.";
         return false;
+      }
       $localEtags = $this->getLocalETagsForConnection($conn);
+      if($conf['allowdebug'])
+        dbglog($localEtags);
       if($localEtags === false)
+      {
+        $this->lastErr = "Fetching ETags from local database failed.";
         return false;
+      }
 
       $worklist = $this->compareETags($remoteEtags, $localEtags);
+      if($conf['allowdebug'])
+        dbglog($worklist);
       
       $this->sqlite->query("BEGIN TRANSACTION");
-      
+           
       // Fetch the etags that need to be fetched
       if(!empty($worklist['fetch']))
       {
         $objects = $this->getRemoteObjectsByEtag($conn, $worklist['fetch']);
         if($objects === false)
         {
+          $this->lastErr = "Fetching remote objects by ETag failed.";
           $this->sqlite->query("ROLLBACK TRANSACTION");
           return false;
         }
+        if($conf['allowdebug'])
+          dbglog($objects);
         $this->insertObjects($conn, $objects);
       }
       
@@ -627,6 +715,11 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
         {
           $this->object2addressbook($conn['id'], $data);
         }
+        else
+        {
+          $this->lastErr = "Unsupported type.";
+          return false;
+        }
       }
       return true;
   }
@@ -651,6 +744,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       }
       else
       {
+          $this->lastErr = "Unsupported type.";
           return false;
       }
       foreach($worklist as $etag => $href)
@@ -659,30 +753,6 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
         $this->sqlite->query($query, $etag);
       }
       return true;
-  }
-  
-  // FIXME: Currently unused
-  private function getRemoteObjectsByHref($conn, $href)
-  {
-      if($conn['type'] === 'contacts')
-      {
-        $data = $this->buildReport('C:addressbook-multiget', array('C' => 'urn:ietf:params:xml:ns:carddav'),
-                                   array('D:getetag', 
-                                   'C:address-data'), array(), 
-                                   $href);
-      }
-      elseif($conn['type'] === 'calendar')
-      {
-        $data = $this->buildReport('C:calendar-multiget', array('C' => 'urn:ietf:params:xml:ns:caldav'), 
-                                   array('D:getetag', 
-                                   'C:calendar-data'),
-                                   array(),
-                                   $href);
-      }
-      $this->setupClient($conn, strlen($data), '1');
-      $resp = $this->client->sendRequest($conn['uri'], $data, 'REPORT');
-      $response = $this->parseResponse();
-      return $response;
   }
 
   /**
@@ -760,11 +830,12 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
                                $ct = 'application/xml; charset=utf-8', $headers = array(),
                                $redirect = 3)
   {
-      $this->client->debug = true;
       $this->client->user = $conn['username'];
       $this->client->pass = $conn['password'];
       $this->client->http = '1.1';
       $this->client->max_redirect = $redirect;
+      // For big request, having keep alive enabled doesn't seem to work correctly
+      $this->client->keep_alive = false;
       // Restore the Client's default headers, otherwise we might keep
       // old headers for later requests
       $this->client->headers = $this->client_headers;
@@ -799,6 +870,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       }
       else
       {
+          $this->lastErr = "Unsupported type.";
           return false;
       }
       $query = "SELECT uri, etag FROM " . $table . " WHERE " . $id . " = ?";
@@ -826,10 +898,11 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       {
         $data = $this->buildReport('C:calendar-query', array('C' => 'urn:ietf:params:xml:ns:caldav'), 
                                    array('D:getetag'),
-                                   array('C:comp-filter' => 'VCALENDAR'));
+                                   array('C:comp-filter' => array('VCALENDAR' => 'VEVENT')));
       }
       else 
       {
+          $this->lastErr = "Unsupported type.";
           return false;
       }
       $this->setupClient($conn, strlen($data), '1');
@@ -850,12 +923,14 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       {
           if($conf['allowdebug'])
             dbglog('Error: Status reported was ' . $this->client->status);
+          $this->lastErr = "Error: Server reported status ".$this->client->status;
           return false;
       }
       
       if($conf['allowdebug'])
       {
         dbglog($this->client->status);
+        dbglog($this->client->error);
       }
       
       $response = $this->clean_response($this->client->resp_body);
@@ -869,6 +944,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       {
         if($conf['allowdebug'])
           dbglog('Exception occured: '.$e->getMessage());
+        $this->lastErr = "Exception occured while parsing response: ".$e->getMessage();
         return false;
       }
             
@@ -953,52 +1029,14 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
 
       $resp = $this->client->sendRequest($conn['uri'], $data, 'PROPFIND');
 
-      if($this->client->status > 400)
+      $response = $this->parseResponse();
+      if(count($response) != 1)
       {
-          if($conf['allowdebug'])
-            dbglog('Error: Status reported was ' . $this->client->status);
-          return false;
+          $this->lastErr = "Error: Unexpected response from server";
       }
       
-      if($conf['allowdebug'])
-      {
-        dbglog($this->client->status);
-      }
-      
-      $response = $this->clean_response($this->client->resp_body);
-      if($conf['allowdebug'])
-        dbglog($response);
-
-      try
-      {
-        $xml = simplexml_load_string($response);
-      }
-      catch(Exception $e)
-      {
-        if($conf['allowdebug'])
-          dbglog('Exception occured: '.$e->getMessage());
-        return false;
-      }
-            
-      $syncResponse = array();
-      $syncResponse['getctag'] = null;
-      $syncResponse['displayname'] = '';
-      
-      if(!empty($xml->response))
-      {
-          foreach($xml->response as $response)
-          {
-              $status = $this->parseHttpStatus((string)$response->propstat->status);
-              // We parse here all props that succeeded and ignore the failed ones
-              if($status === '200')
-              {
-                  foreach($response->propstat->prop->children() as $child)
-                  {
-                      $syncResponse[$child->getName()] = trim((string)$child, '"');
-                  }
-              }
-          }
-      }
+      $syncResponse = array_values($response);
+      $syncResponse = $syncResponse[0];
       return $syncResponse;
   }
 
@@ -1020,6 +1058,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       $res = $this->sqlite->query($query, $lastSynced, $ctag, $connectionId);
       if($res !== false)
         return true;
+      $this->lastErr = "Error updating connection";
       return false;
   }
   
@@ -1041,7 +1080,20 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       $vcal = \Sabre\VObject\Reader::read($calendarobject['calendar-data']);
       
       $maxDate = new \DateTime('2038-01-01'); // Max. timestamp on 32bit
-      $firstoccurrence = $vcal->VEVENT->DTSTART->getDateTime()->getTimeStamp();
+      if(!isset($vcal->VEVENT))
+      {
+          // Not an event
+          $this->lastErr = "Not an event";
+          return false;
+      }
+      if(!isset($vcal->VEVENT->DTSTART))
+      {
+          // This shouldn't happen, but there are events that do not have
+          // a DTSTART
+          $this->lastErr = "Event does not have a DTSTART value";
+          return false;
+      }
+      $firstoccurrence = $vcal->VEVENT->DTSTART->getDateTime()->getTimestamp();
       $lastoccurrence = $maxDate->getTimestamp();
       $recurrence = $vcal->VEVENT->RRULE;
       // If it is a recurring event, pass it through Sabre's EventIterator
@@ -1067,19 +1119,19 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       {
           if(isset($vcal->VEVENT->DTEND))
           {
-              $lastoccurrence = $vcal->VEVENT->DTEND->getDateTime()->getTimeStamp();
+              $lastoccurrence = $vcal->VEVENT->DTEND->getDateTime()->getTimestamp();
           }
           elseif(isset($vcal->VEVENT->DURATION))
           {
               $endDate = clone $vcal->VEVENT->DTSTART->getDateTime();
               $endDate = $endDate->add(\Sabre\VObject\DateTimeParser::parse($vcal->VEVENT->DURATION->getValue()));
-              $lastoccurrence = $endDate->getTimeStamp();
+              $lastoccurrence = $endDate->getTimestamp();
           }
           elseif(!$vcal->VEVENT->DTSTART->hasTime())
           {
               $endDate = clone $vcal->VEVENT->DTSTART->getDateTime();
               $endDate = $endDate->modify('+1 day');
-              $lastoccurrence = $endDate->getTimeStamp();
+              $lastoccurrence = $endDate->getTimestamp();
           }
           else
           {
@@ -1092,6 +1144,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       $res = $this->sqlite->query($query, $calendarobject['calendar-data'], $calendarobject['href'], $connectionId, $lastmod->getTimestamp(), $calendarobject['getetag'], strlen($calendarobject['calendar-data']), $calendarobject['componenttype'], $calendarobject['uid'], $firstoccurrence, $lastoccurrence);
       if($res !== false)
         return true;
+      $this->lastErr = "Error inserting object";
       return false;
   }
 
@@ -1111,6 +1164,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       $res = $this->sqlite->query($query, $addressobject['address-data'], $addressobject['href'], $connectionId, $lastmod->getTimestamp(), $addressobject['getetag'], strlen($addressobject['address-data']), $addressobject['uid']);
       if($res !== false)
         return true;
+      $this->lastErr = "Error inserting object";
       return false;
   }
 
@@ -1199,11 +1253,20 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
           if(!empty($filters))
           {
               $xml->startElement('C:filter');
-                foreach($filters as $filter => $name)
+                foreach($filters as $filter => $params)
                 {
-                    $xml->startElement($filter);
-                    $xml->writeAttribute('name', $name);
-                    $xml->endElement();
+                    foreach($params as $key => $val)
+                    {
+                        $xml->startElement($filter);
+                        $xml->writeAttribute('name', $key);
+                        if($val !== '')
+                        {
+                            $xml->startElement($filter);
+                            $xml->writeAttribute('name', $val);
+                            $xml->endElement();
+                        }
+                        $xml->endElement();
+                    }
                 }
               $xml->endElement();
           }
