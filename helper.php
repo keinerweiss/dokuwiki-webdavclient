@@ -1191,7 +1191,6 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   private function clean_response($response)
   {
-      $response = utf8_encode($response);
       // Strip the namespace prefixes on all XML tags
       $response = preg_replace('/(<\/*)[^>:]+:/', '$1', $response);
       return $response;
