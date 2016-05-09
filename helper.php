@@ -706,7 +706,6 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       foreach($objects as $href => $data)
       {
         $data['href'] = basename($href);
-        $data['uid'] = uniqid();
         if($conn['type'] === 'calendar')
         {
           $this->object2calendar($conn['id'], $data);
@@ -1073,75 +1072,17 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   private function object2calendar($connectionId, $calendarobject)
   {
-      // Load Sabre/VObject - we need this to parse the ICS file and generate the
-      // event's start and end timestamps
-      // The code is heavily based on Sabre's PDO backend
-      require_once(DOKU_PLUGIN.'webdavclient/vendor/autoload.php');
-      $vcal = \Sabre\VObject\Reader::read($calendarobject['calendar-data']);
+      $extradata = $this->getDenormalizedData($calendarobject['calendar-data']);
       
-      $maxDate = new \DateTime('2038-01-01'); // Max. timestamp on 32bit
-      if(!isset($vcal->VEVENT))
+      if($extradata === false)
       {
-          // Not an event
-          $this->lastErr = "Not an event";
-          return false;
-      }
-      if(!isset($vcal->VEVENT->DTSTART))
-      {
-          // This shouldn't happen, but there are events that do not have
-          // a DTSTART
-          $this->lastErr = "Event does not have a DTSTART value";
-          return false;
-      }
-      $firstoccurrence = $vcal->VEVENT->DTSTART->getDateTime()->getTimestamp();
-      $lastoccurrence = $maxDate->getTimestamp();
-      $recurrence = $vcal->VEVENT->RRULE;
-      // If it is a recurring event, pass it through Sabre's EventIterator
-      if($recurrence != null)
-      {
-          $it = new \Sabre\VObject\Recur\EventIterator(array($vcal->VEVENT));
-          if($it->isInfinite())
-          {
-              $lastoccurrence = $maxDate->getTimestamp();
-          }
-          else
-          {
-              $end = $it->getDtEnd();
-              while($it->valid() && $end < $maxDate)
-              {
-                  $end = $it->getDtEnd();
-                  $it->next();
-              }
-              $lastoccurrence = $end->getTimestamp();
-          }
-      }
-      else
-      {
-          if(isset($vcal->VEVENT->DTEND))
-          {
-              $lastoccurrence = $vcal->VEVENT->DTEND->getDateTime()->getTimestamp();
-          }
-          elseif(isset($vcal->VEVENT->DURATION))
-          {
-              $endDate = clone $vcal->VEVENT->DTSTART->getDateTime();
-              $endDate = $endDate->add(\Sabre\VObject\DateTimeParser::parse($vcal->VEVENT->DURATION->getValue()));
-              $lastoccurrence = $endDate->getTimestamp();
-          }
-          elseif(!$vcal->VEVENT->DTSTART->hasTime())
-          {
-              $endDate = clone $vcal->VEVENT->DTSTART->getDateTime();
-              $endDate = $endDate->modify('+1 day');
-              $lastoccurrence = $endDate->getTimestamp();
-          }
-          else
-          {
-              $lastoccurrence = $firstoccurrence;
-          }
+        $this->lastErr = "Couldn't parse calendar data";
+        return false;
       }
             
       $query = "INSERT INTO calendarobjects (calendardata, uri, calendarid, lastmodified, etag, size, componenttype, uid, firstoccurence, lastoccurence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-      $lastmod = new \DateTime($addressobject['getlastmodified']);
-      $res = $this->sqlite->query($query, $calendarobject['calendar-data'], $calendarobject['href'], $connectionId, $lastmod->getTimestamp(), $calendarobject['getetag'], strlen($calendarobject['calendar-data']), $calendarobject['componenttype'], $calendarobject['uid'], $firstoccurrence, $lastoccurrence);
+      $lastmod = new \DateTime($calendarobject['getlastmodified']);
+      $res = $this->sqlite->query($query, $calendarobject['calendar-data'], $calendarobject['href'], $connectionId, $lastmod->getTimestamp(), $calendarobject['getetag'], $extradata['size'], $extradata['componentType'], $extradata['uid'], $extradata['firstOccurence'], $extradata['lastoccurence']);
       if($res !== false)
         return true;
       $this->lastErr = "Error inserting object";
@@ -1159,9 +1100,9 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   private function object2addressbook($connectionId, $addressobject)
   {
-      $query = "INSERT INTO addressbookobjects (contactdata, uri, addressbookid, lastmodified, etag, size, uid) VALUES(?, ?, ?, ?, ?, ?, ?)";
+      $query = "INSERT INTO addressbookobjects (contactdata, uri, addressbookid, lastmodified, etag, size) VALUES(?, ?, ?, ?, ?, ?, ?)";
       $lastmod = new \DateTime($addressobject['getlastmodified']);
-      $res = $this->sqlite->query($query, $addressobject['address-data'], $addressobject['href'], $connectionId, $lastmod->getTimestamp(), $addressobject['getetag'], strlen($addressobject['address-data']), $addressobject['uid']);
+      $res = $this->sqlite->query($query, $addressobject['address-data'], $addressobject['href'], $connectionId, $lastmod->getTimestamp(), $addressobject['getetag'], strlen($addressobject['address-data']));
       if($res !== false)
         return true;
       $this->lastErr = "Error inserting object";
@@ -1322,4 +1263,102 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   {
       return $this->getConf($key);
   }
+  
+  /**
+   * Parses some information from calendar objects, used for optimized
+   * calendar-queries.
+   *
+   * Returns an array with the following keys:
+   *   * etag - An md5 checksum of the object without the quotes.
+   *   * size - Size of the object in bytes
+   *   * componentType - VEVENT, VTODO or VJOURNAL
+   *   * firstOccurence
+   *   * lastOccurence
+   *   * uid - value of the UID property
+   *
+   * @param string $calendarData
+   * @return array
+   */
+  protected function getDenormalizedData($calendarData) 
+  {
+    require_once(DOKU_PLUGIN.'webdavclient/vendor/autoload.php');
+    
+    $vObject = \Sabre\VObject\Reader::read($calendarData);
+    $componentType = null;
+    $component = null;
+    $firstOccurence = null;
+    $lastOccurence = null;
+    $uid = null;
+    foreach ($vObject->getComponents() as $component) 
+    {
+        if ($component->name !== 'VTIMEZONE') 
+        {
+            $componentType = $component->name;
+            $uid = (string)$component->UID;
+            break;
+        }
+    }
+    if (!$componentType) 
+    {
+        return false;
+    }
+    if ($componentType === 'VEVENT') 
+    {
+        $firstOccurence = $component->DTSTART->getDateTime()->getTimeStamp();
+        // Finding the last occurence is a bit harder
+        if (!isset($component->RRULE)) 
+        {
+            if (isset($component->DTEND)) 
+            {
+                $lastOccurence = $component->DTEND->getDateTime()->getTimeStamp();
+            }
+            elseif (isset($component->DURATION)) 
+            {
+                $endDate = clone $component->DTSTART->getDateTime();
+                $endDate->add(\Sabre\VObject\DateTimeParser::parse($component->DURATION->getValue()));
+                $lastOccurence = $endDate->getTimeStamp();
+            } 
+            elseif (!$component->DTSTART->hasTime()) 
+            {
+                $endDate = clone $component->DTSTART->getDateTime();
+                $endDate->modify('+1 day');
+                $lastOccurence = $endDate->getTimeStamp();
+            } 
+            else 
+            {
+                $lastOccurence = $firstOccurence;
+            }
+        } 
+        else 
+        {
+            $it = new \Sabre\VObject\Recur\EventIterator($vObject, (string)$component->UID);
+            $maxDate = new \DateTime('2038-01-01');
+            if ($it->isInfinite()) 
+            {
+                $lastOccurence = $maxDate->getTimeStamp();
+            } 
+            else 
+            {
+                $end = $it->getDtEnd();
+                while ($it->valid() && $end < $maxDate) 
+                {
+                    $end = $it->getDtEnd();
+                    $it->next();
+                }
+                $lastOccurence = $end->getTimeStamp();
+            }
+        }
+    }
+
+    return array(
+        'etag'           => md5($calendarData),
+        'size'           => strlen($calendarData),
+        'componentType'  => $componentType,
+        'firstOccurence' => $firstOccurence,
+        'lastOccurence'  => $lastOccurence,
+        'uid'            => $uid,
+    );
+
+  }  
+  
 }
