@@ -47,8 +47,8 @@ CREATE TABLE addressbookobjects (
     lastmodified integer,
     etag text,
     size integer,
-    componenttype text,
-    uid text
+    formattedname text,
+    structuredname text
 );
 
 CREATE TABLE addressbookchanges (
