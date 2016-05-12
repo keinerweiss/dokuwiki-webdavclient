@@ -66,6 +66,8 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   public function addCalendarEntry($connectionId, $data, $dwuser = null)
   {
       $conn = $this->getConnection($connectionId);
+      if($conn === false)
+        return false;
       $this->setupClient($conn, strlen($data), null, 'text/calendar; charset=utf-8');
       $path = $conn['uri'].'/'.uniqid('dokuwiki-').'.ics';      
       $resp = $this->client->sendRequest($path, $data, 'PUT');
@@ -90,6 +92,8 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   public function editCalendarEntry($connectionId, $uid, $data, $dwuser = null)
   {
       $conn = $this->getConnection($connectionId);
+      if($conn === false)
+        return false;
       $entry = $this->getCalendarEntryByUid($uid);
       $etag = '"'.$entry['etag'].'"';
       $this->setupClient($conn, strlen($data), null, 'text/calendar; charset=utf-8', array('If-Match' => $etag));
@@ -116,6 +120,8 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   public function deleteCalendarEntry($connectionId, $uid, $dwuser = null)
   {
       $conn = $this->getConnection($connectionId);
+      if($conn === false)
+        return false;
       $entry = $this->getCalendarEntryByUid($uid);
       $etag = '"'.$entry['etag'].'"';
       $this->setupClient($conn, strlen($data), null, 'text/calendar; charset=utf-8', array('If-Match' => $etag));
@@ -184,6 +190,8 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   public function deleteConnection($connectionId)
   {
       $conn = $this->getConnection($connectionId);
+      if($conn === false)
+        return false;
       if($conn['type'] === 'calendar')
       {
           $query = "DELETE FROM calendarobjects WHERE calendarid = ?";
@@ -245,6 +253,8 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   public function addAddressbookEntry($connectionId, $data, $dwuser = null)
   {      
       $conn = $this->getConnection($connectionId);
+      if($conn === false)
+        return false;
       $this->setupClient($conn, strlen($data), null, 'text/vcard; charset=utf-8');
       $path = $conn['uri'].'/'.uniqid('dokuwiki-').'.vcf';      
       $resp = $this->client->sendRequest($path, $data, 'PUT');
@@ -270,6 +280,8 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   public function editAddressbookEntry($connectionId, $uri, $data, $dwuser = null)
   {
       $conn = $this->getConnection($connectionId);
+      if($conn === false)
+        return false;
       $entry = $this->getAddressbookEntryByUri($connectionId, $uri);
       $etag = '"'.$entry['etag'].'"';
       $this->setupClient($conn, strlen($data), null, 'text/vcard; charset=utf-8', array('If-Match' => $etag));
@@ -296,6 +308,8 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   public function deleteAddressbookEntry($connectionId, $uri, $dwuser = null)
   {
       $conn = $this->getConnection($connectionId);
+      if($conn === false)
+        return false;
       $entry = $this->getAddressbookEntryByUri($connectionId, $uri);
       $etag = '"'.$entry['etag'].'"';
       $this->setupClient($conn, strlen($data), null, 'text/vcard; charset=utf-8', array('If-Match' => $etag));
@@ -320,7 +334,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   public function getAddressbookEntries($connectionId, $dwuser = null)
   {
-      $query = "SELECT contactdata, uid, uri, formattedname, structuredname FROM addressbookobjects WHERE addressbookid = ?";
+      $query = "SELECT contactdata, uri, formattedname, structuredname FROM addressbookobjects WHERE addressbookid = ?";
       $res = $this->sqlite->query($query, $connectionId);
       return $this->sqlite->res2arr($res);
   }
