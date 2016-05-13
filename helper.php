@@ -15,12 +15,16 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   protected $client = null;
   protected $client_headers = '';
   protected $lastErr = '';
+  protected $syncChangeLogFile;
   
   /**
     * Constructor to load the configuration
     */
   public function helper_plugin_webdavclient() {
     global $conf;
+    
+    $this->syncChangeLogFile = $conf['metadir'].'/.webdavclient/synclog';
+    
     $this->sqlite =& plugin_load('helper', 'sqlite');
     if(!$this->sqlite)
     {
@@ -1031,7 +1035,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   private function parseResponse()
   {
       global $conf;
-      if($this->client->status >= 400)
+      if(($this->client->status >= 400) || ($this->client->status < 200))
       {
           if($conf['allowdebug'])
             dbglog('Error: Status reported was ' . $this->client->status);
@@ -1176,6 +1180,8 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   {
       if(is_null($ctag))
         $ctag = '';
+      
+      io_saveFile($this->syncChangeLogFile.$connectionId, serialize($lastSynced));
       
       $query = "UPDATE connections SET lastsynced = ?, ctag = ? WHERE id = ?";
       $res = $this->sqlite->query($query, $lastSynced, $ctag, $connectionId);
@@ -1531,6 +1537,11 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
         'uid'            => $uid,
     );
 
-  }  
+  }
+
+  public function getLastSyncChangeFileForConnection($connectionId)
+  {
+      return $this->syncChangeLogFile.$connectionId;
+  }
   
 }
