@@ -36,6 +36,7 @@ $lang['select'] = "Select";
 $lang['add_selected'] = "Add selected";
 $lang['nothing_selected'] = "Nothing selected";
 $lang['forcesync'] = "Force Sync";
+$lang['forceresync'] = "Force Resync";
 $lang['calendar'] = "Calendar";
 $lang['contacts'] = "Address Book";
 $lang['type'] = "Type";

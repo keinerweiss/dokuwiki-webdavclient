@@ -70,6 +70,14 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
                 $this->errmsg = $this->hlp->getLastError();
             }
             break;
+          case 'forceresync':
+            $connid = $param;
+            if($this->hlp->syncConnection($connid, true, true, true) === false)
+            {
+                $this->error = true;
+                $this->errmsg = $this->hlp->getLastError();
+            }
+            break;
           case 'delete':
             $connid = $param;
             $this->hlp->deleteConnection($connid);
@@ -181,7 +189,8 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
             '</td><td><input type="submit" name="cmd[modify]['.$conn['id'].']" value="'.
             $this->getLang('modify').'" /><input type="submit" name="cmd[delete]['.$conn['id'].']" value="'.
             $this->getLang('delete').'" /><input type="submit" name="cmd[forcesync]['.$conn['id'].']" value="'.
-            $this->getLang('forcesync').'" /></td>');
+            $this->getLang('forcesync').'" /><input type="submit" name="cmd[forceresync]['.
+            $conn['id'].']" value="'.$this->getLang('forceresync').'" /></td>');
           ptln('</tr>');
       }
       

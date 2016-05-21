@@ -691,10 +691,12 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    * @param int $connectionId The connection ID to work with
    * @param boolean $force Force sync, even if the interval hasn't passed
    * @param boolean $overrideActive Force sync, even if the connection is inactive
+   * @param boolean $deleteBeforeSync Force sync AND delete local data beforehand
    * 
    * @return true on success, otherwise false
    */
-  public function syncConnection($connectionId, $force = false, $overrideActive = false)
+  public function syncConnection($connectionId, $force = false, $overrideActive = false,
+                                 $deleteBeforeSync = false)
   {
       global $conf;
       if($conf['allowdebug'])
@@ -744,7 +746,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
 
       if(isset($syncResponse['getctag']))
       {
-          if($conn['ctag'] === $syncResponse['getctag'])
+          if(($conn['ctag'] === $syncResponse['getctag']) && !$force)
           {
             if($conf['allowdebug'])
               dbglog('CTags match, no need to sync');
@@ -765,6 +767,22 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
         $this->lastErr = "Fetching ETags from remote server failed.";
         return false;
       }
+      
+      // Delete all local entries if requested to do so
+      if($deleteBeforeSync === true)
+      {
+        if($conn['type'] === 'calendar')
+        {
+          $query = "DELETE FROM calendarobjects WHERE calendarid = ?";
+          $this->sqlite->query($query, $connectionId);
+        }
+        elseif($conn['type'] === 'contacts')
+        {
+          $query = "DELETE FROM addressbookobjects WHERE addressbookid = ?";
+          $this->sqlite->query($query, $connectionId);
+        }
+      }
+      
       $localEtags = $this->getLocalETagsForConnection($conn);
       if($conf['allowdebug'])
         dbglog($localEtags);
@@ -1212,7 +1230,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
             
       $query = "INSERT INTO calendarobjects (calendardata, uri, calendarid, lastmodified, etag, size, componenttype, uid, firstoccurence, lastoccurence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
       $lastmod = new \DateTime($calendarobject['getlastmodified']);
-      $res = $this->sqlite->query($query, $calendarobject['calendar-data'], $calendarobject['href'], $connectionId, $lastmod->getTimestamp(), $calendarobject['getetag'], $extradata['size'], $extradata['componentType'], $extradata['uid'], $extradata['firstOccurence'], $extradata['lastoccurence']);
+      $res = $this->sqlite->query($query, $calendarobject['calendar-data'], $calendarobject['href'], $connectionId, $lastmod->getTimestamp(), $calendarobject['getetag'], $extradata['size'], $extradata['componentType'], $extradata['uid'], $extradata['firstOccurence'], $extradata['lastOccurence']);
       if($res !== false)
         return true;
       $this->lastErr = "Error inserting object";
