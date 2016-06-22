@@ -6,6 +6,7 @@
  * (c) 2016 Andreas Boehler <dev@aboehler.at>
  */
 
+$lang['reallyempty'] = "This deletes all entries from SERVER and CLIENT. Are you sure?";
 $lang['menu'] = "WebDAV Connection Setup";
 $lang['existing_connections'] = "Existing Connections";
 $lang['name'] = "Name";
@@ -40,3 +41,4 @@ $lang['forceresync'] = "Force Resync";
 $lang['calendar'] = "Calendar";
 $lang['contacts'] = "Address Book";
 $lang['type'] = "Type";
+$lang['empty'] = "Empty";

@@ -120,6 +120,13 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
                 $this->hlp->addConnection($_REQUEST['addressbook'][$idx], $_REQUEST['addusername'], $_REQUEST['addpassword'], $_REQUEST['addressbookdn'][$idx], $_REQUEST['addressbookdn'][$idx], 'contacts', '3600', false, false);
             }
             break;
+          case 'empty':
+            $this->result['connid'] = $param;
+            break; 
+          case 'reallyempty':
+            $connid = $param;
+            $this->hlp->deleteAllEntries($connid);
+            break;
           case 'discover':
             $username = $INPUT->str('username', '');
             $password = $INPUT->str('password', '');
@@ -136,7 +143,6 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
             $this->result['uri'] = $uri;
             break;
           default:
-            ptln('else');
             break;
       } 
         
@@ -156,46 +162,6 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
       ptln('  <input type="hidden" name="page" value="'.$this->getPluginName().'" />');
       formSecurityToken();
       
-      ptln('<table>');
-      $connections = $this->hlp->getConnections();
-      
-      ptln('<tr>');
-      ptln('<th>'.$this->getLang('id').'</th><th>'.$this->getLang('name').'</th><th>'.
-      $this->getLang('uri').'</th><th>'.$this->getLang('username').'</th><th>'.
-      $this->getLang('syncinterval').'</th><th>'.$this->getLang('active').
-        '</th><th>'.$this->getLang('write').'</th><th>'.$this->getLang('action').'</th>');
-      ptln('</tr>');
-      
-      foreach($connections as $conn)
-      {
-          ptln('<tr>');
-          ptln('  <td>'.hsc($conn['id']).
-            '</td><td><input type="text" name="moddn['.$conn['id'].']" value="'.$conn['displayname'].'">'.
-            '</td><td><input type="text" name="moduri['.$conn['id'].']" value="'.$conn['uri'].'">'.
-            '</td><td>'.hsc($conn['username']).
-            '</td><td><input type="text" size="5" name="modsyncinterval['.$conn['id'].']" value="'.$conn['syncinterval'].'">'.
-            '</td><td><select name="modactive['.$conn['id'].']">'.
-            '<option value="1" '. (($conn['active']) ? 'selected="selected"' : '').'>'.
-                $this->getLang('active').'</option>'.
-            '<option value="0" '. (($conn['active']) ? '' : 'selected="selected"').'>'.
-                $this->getLang('inactive').'</option>'.
-            '</select>'.
-            '</td><td><select name="modwrite['.$conn['id'].']">'.
-            '<option value="1" '. (($conn['write']) ? 'selected="selected"' : '').'>'.
-                $this->getLang('write').'</option>'.
-            '<option value="0" '. (($conn['write']) ? '' : 'selected="selected"').'>'.
-                $this->getLang('nowrite').'</option>'.
-            '</select>'.
-            '</td><td><input type="submit" name="cmd[modify]['.$conn['id'].']" value="'.
-            $this->getLang('modify').'" /><input type="submit" name="cmd[delete]['.$conn['id'].']" value="'.
-            $this->getLang('delete').'" /><input type="submit" name="cmd[forcesync]['.$conn['id'].']" value="'.
-            $this->getLang('forcesync').'" /><input type="submit" name="cmd[forceresync]['.
-            $conn['id'].']" value="'.$this->getLang('forceresync').'" /></td>');
-          ptln('</tr>');
-      }
-      
-      ptln('</table>');
-      
       if($this->error === true)
       {
           ptln($this->errmsg);
@@ -204,6 +170,10 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
       {
           switch($this->action)
           {
+              case 'empty':
+                ptln($this->getLang('reallyempty'));
+                ptln('<input type="submit" name="cmd[reallyempty]['.$this->result['connid'].']" value="' . $this->getLang('empty').'">');
+              break;
               case 'discover':
                 if(count($this->result['calendars']) == 0 && count($this->result['addressbooks']) == 0)
                 {
@@ -244,6 +214,47 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
                     $this->getLang('add_selected').'">'); 
           }
       }
+
+      ptln('<table>');
+      $connections = $this->hlp->getConnections();
+      
+      ptln('<tr>');
+      ptln('<th>'.$this->getLang('id').'</th><th>'.$this->getLang('name').'</th><th>'.
+      $this->getLang('uri').'</th><th>'.$this->getLang('username').'</th><th>'.
+      $this->getLang('syncinterval').'</th><th>'.$this->getLang('active').
+        '</th><th>'.$this->getLang('write').'</th><th>'.$this->getLang('action').'</th>');
+      ptln('</tr>');
+      
+      foreach($connections as $conn)
+      {
+          ptln('<tr>');
+          ptln('  <td>'.hsc($conn['id']).
+            '</td><td><input type="text" name="moddn['.$conn['id'].']" value="'.$conn['displayname'].'">'.
+            '</td><td><input type="text" name="moduri['.$conn['id'].']" value="'.$conn['uri'].'">'.
+            '</td><td>'.hsc($conn['username']).
+            '</td><td><input type="text" size="5" name="modsyncinterval['.$conn['id'].']" value="'.$conn['syncinterval'].'">'.
+            '</td><td><select name="modactive['.$conn['id'].']">'.
+            '<option value="1" '. (($conn['active']) ? 'selected="selected"' : '').'>'.
+                $this->getLang('active').'</option>'.
+            '<option value="0" '. (($conn['active']) ? '' : 'selected="selected"').'>'.
+                $this->getLang('inactive').'</option>'.
+            '</select>'.
+            '</td><td><select name="modwrite['.$conn['id'].']">'.
+            '<option value="1" '. (($conn['write']) ? 'selected="selected"' : '').'>'.
+                $this->getLang('write').'</option>'.
+            '<option value="0" '. (($conn['write']) ? '' : 'selected="selected"').'>'.
+                $this->getLang('nowrite').'</option>'.
+            '</select>'.
+            '</td><td><input type="submit" name="cmd[modify]['.$conn['id'].']" value="'.
+            $this->getLang('modify').'" /><input type="submit" name="cmd[delete]['.$conn['id'].']" value="'.
+            $this->getLang('delete').'" /><input type="submit" name="cmd[forcesync]['.$conn['id'].']" value="'.
+            $this->getLang('forcesync').'" /><input type="submit" name="cmd[forceresync]['.
+            $conn['id'].']" value="'.$this->getLang('forceresync').'" /><input type="submit" name="cmd[empty]['.
+            $conn['id'].']" value="'.$this->getLang('empty').'" /></td>');
+          ptln('</tr>');
+      }
+      
+      ptln('</table>');
 
       ptln('<div style="width:46%; float:left">');
       ptln('<h2>'.$this->getLang('add_connection').'</h2>');

@@ -343,6 +343,33 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       return $this->sqlite->res2arr($res);
   }
   
+  /** Delete all entries from a WebDAV resource - be careful!
+   * 
+   * @param int $connectionId The connection ID to work with
+   */
+  public function deleteAllEntries($connectionId)
+  {
+      $conn = $this->getConnection($connectionId);
+      switch($conn['type'])
+      {
+          case 'contacts':
+              $entries = $this->getAddressbookEntries($connectionId);
+              foreach($entries as $entry)
+              {
+                  $this->deleteAddressbookEntry($connectionId, $entry['uri']);
+              }
+          break;
+          case 'calendar':
+              $entries = $this->getCalendarEntries($connectionId);
+              foreach($entries as $entry)
+              {
+                  $this->deleteCalendarEntry($connectionId, $entry['uid']);
+              }
+          break;
+      }
+      return true;
+  }
+  
   /**
    * Add a new WebDAV connection to the backend
    * 
