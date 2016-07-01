@@ -2,6 +2,8 @@
 
 /**
  * DoukWiki webdavclient PlugIn - CRON service
+ * @license GPL 2 http://www.gnu.org/licenses/gpl-2.0.html
+ * @author  Andreas Böhler <dev@aboehler.at>
  */
 
 if(!defined('DOKU_INC')) define('DOKU_INC', dirname(__FILE__).'/../../../');

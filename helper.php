@@ -1584,6 +1584,13 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
 
   }
 
+/**
+ * Retrieve the path to the sync change file for a given connection ID.
+ * You can use this file to easily monitor if a sync has changed anything.
+ * 
+ * @param int $connectionID The connection ID to work with
+ * @return string The path to the sync change file
+ */
   public function getLastSyncChangeFileForConnection($connectionId)
   {
       return $this->syncChangeLogFile.$connectionId;
