@@ -25,27 +25,32 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
     
     $this->syncChangeLogFile = $conf['metadir'].'/.webdavclient/synclog';
     
-    $this->sqlite =& plugin_load('helper', 'sqlite');
-    if(!$this->sqlite)
-    {
-        if($conf['allowdebug'])
-            dbglog('This plugin requires the sqlite plugin. Please install it.');
-        $this->lastErr = 'This plugin requires the sqlite plugin. Please install it.';
-        msg('This plugin requires the sqlite plugin. Please install it.');
-        return;
-    }
-    
-    // Init DB
-    if(!$this->sqlite->init('webdavclient', DOKU_PLUGIN.'webdavclient/db/'))
-    {
-        if($conf['allowdebug'])
-            dbglog('Error initialising the SQLite DB for webdavclient');
-        $this->lastErr = 'Error initialising the SQLite DB for webdavclient';
-        return;
-    }
-    
     $this->client = new DokuHTTPClient();
     $client_headers = $this->client->headers;
+  }
+  
+  /** Establish and initialize the database if not already done
+   * @return sqlite interface or false
+   */
+  private function getDB()
+  {
+      if($this->sqlite === null)
+      {
+        $this->sqlite = plugin_load('helper', 'sqlite');
+        if(!$this->sqlite)
+        {
+            dbglog('This plugin requires the sqlite plugin. Please install it.');
+            msg('This plugin requires the sqlite plugin. Please install it.', -1);
+            return false;
+        }
+        if(!$this->sqlite->init('webdavclient', DOKU_PLUGIN.'webdavclient/db/'))
+        {
+            $this->sqlite = null;
+            dbglog('Error initialising the SQLite DB for webdavclient');
+            return false;
+        }
+      }
+      return $this->sqlite;
   }
   
   /**
@@ -149,9 +154,12 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   public function getCalendarEntryByUid($uid)
   {
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;      
       $query = "SELECT calendardata, calendarid, componenttype, etag, uri FROM calendarobjects WHERE uid = ?";
-      $res = $this->sqlite->query($query, $uid);
-      return $this->sqlite->res2row($res);
+      $res = $sqlite->query($query, $uid);
+      return $sqlite->res2row($res);
   }
   
     /**
@@ -164,9 +172,12 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   public function getCalendarEntryByUri($connectionId, $uri)
   {
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       $query = "SELECT calendardata, calendarid, componenttype, etag, uri, uid FROM calendarobjects WHERE calendarid = ? AND uri = ?";
-      $res = $this->sqlite->query($query, $connectionId, $uri);
-      return $this->sqlite->res2row($res);
+      $res = $sqlite->query($query, $connectionId, $uri);
+      return $sqlite->res2row($res);
   }
   
   /**
@@ -179,9 +190,12 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   public function getAddressbookEntryByUri($connectionId, $uri)
   {
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       $query = "SELECT contactdata, addressbookid, etag, uri, formattedname, structuredname FROM addressbookobjects WHERE addressbookid = ? AND uri = ?";
-      $res = $this->sqlite->query($query, $connectionId, $uri);
-      return $this->sqlite->res2row($res);
+      $res = $sqlite->query($query, $connectionId, $uri);
+      return $sqlite->res2row($res);
   }
   
   /**
@@ -193,21 +207,24 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   public function deleteConnection($connectionId)
   {
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       $conn = $this->getConnection($connectionId);
       if($conn === false)
         return false;
       if($conn['type'] === 'calendar')
       {
           $query = "DELETE FROM calendarobjects WHERE calendarid = ?";
-          $this->sqlite->query($query, $connectionId);
+          $sqlite->query($query, $connectionId);
       }
       elseif($conn['type'] === 'contacts')
       {
           $query = "DELETE FROM addressbookobjects WHERE addressbookid = ?";
-          $this->sqlite->query($query, $connectionId);
+          $sqlite->query($query, $connectionId);
       }
       $query = "DELETE FROM connections WHERE id = ?";
-      $res = $this->sqlite->query($query, $connectionId);
+      $res = $sqlite->query($query, $connectionId);
       if($res !== false)
         return true;
       $this->lastErr = "Error deleting connection.";
@@ -228,21 +245,24 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   public function getCalendarEntries($connectionId, $startDate = null, $endDate = null, $dwuser = null)
   {
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       $query = "SELECT calendardata, componenttype, uid FROM calendarobjects WHERE calendarid = ?";
       $startTs = null;
       $endTs = null;
       if($startDate !== null)
       {
         $startTs = new \DateTime($startDate);
-        $query .= " AND lastoccurence > ".$this->sqlite->quote_string($startTs->getTimestamp());
+        $query .= " AND lastoccurence > ".$sqlite->quote_string($startTs->getTimestamp());
       }
       if($endDate !== null)
       {
         $endTs = new \DateTime($endDate);
-        $query .= " AND firstoccurence < ".$this->sqlite->quote_string($endTs->getTimestamp());
+        $query .= " AND firstoccurence < ".$sqlite->quote_string($endTs->getTimestamp());
       }
-      $res = $this->sqlite->query($query, $connectionId);
-      return $this->sqlite->res2arr($res);
+      $res = $sqlite->query($query, $connectionId);
+      return $sqlite->res2arr($res);
   }
   
   /**
@@ -255,7 +275,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    * @return boolean True on success, otherwise false 
    */
   public function addAddressbookEntry($connectionId, $data, $dwuser = null)
-  {      
+  {
       $conn = $this->getConnection($connectionId);
       if($conn === false)
         return false;
@@ -338,9 +358,12 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   public function getAddressbookEntries($connectionId, $dwuser = null)
   {
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       $query = "SELECT contactdata, uri, formattedname, structuredname FROM addressbookobjects WHERE addressbookid = ?";
-      $res = $this->sqlite->query($query, $connectionId);
-      return $this->sqlite->res2arr($res);
+      $res = $sqlite->query($query, $connectionId);
+      return $sqlite->res2arr($res);
   }
   
   /** Delete all entries from a WebDAV resource - be careful!
@@ -387,9 +410,12 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   public function addConnection($uri, $username, $password, $displayname, $description, $type, $syncinterval = '3600', $write = false, $active = true, $dwuser = null)
   {
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       $query = "INSERT INTO connections (uri, displayname, description, username, password, dwuser, type, syncinterval, lastsynced, active, write) ".
                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
-      $res = $this->sqlite->query($query, $uri, $displayname, $description, $username, $password, $dwuser, $type, $syncinterval, '0', $active ? '1' : '0', $write ? '1' : '0');
+      $res = $sqlite->query($query, $uri, $displayname, $description, $username, $password, $dwuser, $type, $syncinterval, '0', $active ? '1' : '0', $write ? '1' : '0');
       if($res === false)
       {
         $this->lastErr = "Error inserting values into SQLite DB";
@@ -398,8 +424,8 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       
       // Retrieve the connection ID
       $query = "SELECT id FROM connections WHERE uri = ? AND displayname = ? AND description = ? AND username = ? AND password = ? AND dwuser = ? AND type = ? and syncinterval = ? and lastsynced = 0 AND active = ? AND write = ?";
-      $res = $this->sqlite->query($query, $uri, $displayname, $description, $username, $password, $dwuser, $type, $syncinterval, $active, $write);
-      $row = $this->sqlite->res2row($res);
+      $res = $sqlite->query($query, $uri, $displayname, $description, $username, $password, $dwuser, $type, $syncinterval, $active, $write);
+      $row = $sqlite->res2row($res);
       
       if(isset($row['id']))
         return $row['id'];
@@ -422,8 +448,11 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   public function modifyConnection($connId, $uri, $displayname, $syncinterval, $write, $active)
   {
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       $query = "UPDATE connections SET uri = ?, displayname = ?, syncinterval = ?, write = ?, active = ? WHERE id = ?";
-      $res = $this->sqlite->query($query, $uri, $displayname, $syncinterval, $write, $active, $connId);
+      $res = $sqlite->query($query, $uri, $displayname, $syncinterval, $write, $active, $connId);
       if($res !== false)
         return true;
 
@@ -439,9 +468,12 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   public function getConnections()
   {
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       $query = "SELECT id, uri, displayname, description, synctoken, username, password, dwuser, type, syncinterval, lastsynced, ctag, active, write FROM connections";
-      $res = $this->sqlite->query($query);
-      return $this->sqlite->res2arr($res);
+      $res = $sqlite->query($query);
+      return $sqlite->res2arr($res);
   }
   
   /**
@@ -454,9 +486,12 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   public function getConnection($connectionId)
   {
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       $query = "SELECT id, uri, displayname, description, synctoken, username, password, dwuser, type, syncinterval, lastsynced, ctag, active, write FROM connections WHERE id = ?";
-      $res = $this->sqlite->query($query, $connectionId);
-      return $this->sqlite->res2row($res);
+      $res = $sqlite->query($query, $connectionId);
+      return $sqlite->res2row($res);
   }
   
   /**
@@ -479,8 +514,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   public function queryServer($uri, $username, $password)
   {
       global $conf;
-      if($conf['allowdebug'])
-        dbglog('queryServer: '.$uri);
+      dbglog('queryServer: '.$uri);
       
       $webdavobjects = array();
       $webdavobjects['calendars'] = array();
@@ -726,8 +760,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
                                  $deleteBeforeSync = false)
   {
       global $conf;
-      if($conf['allowdebug'])
-        dbglog('syncConnection: '.$connectionId);
+      dbglog('syncConnection: '.$connectionId);
       $conn = $this->getConnection($connectionId);
       if($conn === false)
       {
@@ -735,14 +768,12 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
         return false;
       }
       
-      if($conf['allowdebug'])
-        dbglog('Got connection information for connectionId: '.$connectionId);
+      dbglog('Got connection information for connectionId: '.$connectionId);
       
       // Sync required?
       if((time() < ($conn['lastsynced'] + $conn['syncinterval'])) && !$force)
       {
-        if($conf['dbglog'])
-          dbglog('Sync not required (time)');
+        dbglog('Sync not required (time)');
         $this->lastErr = "Sync not required (time)";
         return false;
       }
@@ -750,14 +781,12 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       // Active?
       if(($conn['active'] !== '1') && !$overrideActive)
       {
-        if($conf['allowdebug'])
-          dbglog('Connection not active.');
+        dbglog('Connection not active.');
         $this->lastErr = "Connection not active";
         return false;
       }
       
-      if($conf['allowdebug'])
-        dbglog('Sync required for ConnectionID: '.$connectionId);
+      dbglog('Sync required for ConnectionID: '.$connectionId);
       
       if(($conn['type'] !== 'contacts') && ($conn['type'] !== 'calendar'))
       {
@@ -775,8 +804,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       {
           if(($conn['ctag'] === $syncResponse['getctag']) && !$force)
           {
-            if($conf['allowdebug'])
-              dbglog('CTags match, no need to sync');
+            dbglog('CTags match, no need to sync');
             $this->updateConnection($connectionId, time(), $conn['ctag']);
             $this->lastErr = "CTags match, there is no need to sync";
             return false;
@@ -787,13 +815,16 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       // This also works if the ctag is not supported
       
       $remoteEtags = $this->getRemoteETagsForConnection($conn);
-      if($conf['allowdebug'])
-        dbglog($remoteEtags);
+      dbglog($remoteEtags);
       if($remoteEtags === false)
       {
         $this->lastErr = "Fetching ETags from remote server failed.";
         return false;
       }
+      
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       
       // Delete all local entries if requested to do so
       if($deleteBeforeSync === true)
@@ -801,18 +832,17 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
         if($conn['type'] === 'calendar')
         {
           $query = "DELETE FROM calendarobjects WHERE calendarid = ?";
-          $this->sqlite->query($query, $connectionId);
+          $sqlite->query($query, $connectionId);
         }
         elseif($conn['type'] === 'contacts')
         {
           $query = "DELETE FROM addressbookobjects WHERE addressbookid = ?";
-          $this->sqlite->query($query, $connectionId);
+          $sqlite->query($query, $connectionId);
         }
       }
       
       $localEtags = $this->getLocalETagsForConnection($conn);
-      if($conf['allowdebug'])
-        dbglog($localEtags);
+      dbglog($localEtags);
       if($localEtags === false)
       {
         $this->lastErr = "Fetching ETags from local database failed.";
@@ -820,10 +850,9 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       }
 
       $worklist = $this->compareETags($remoteEtags, $localEtags);
-      if($conf['allowdebug'])
-        dbglog($worklist);
+      dbglog($worklist);
       
-      $this->sqlite->query("BEGIN TRANSACTION");
+      $sqlite->query("BEGIN TRANSACTION");
            
       // Fetch the etags that need to be fetched
       if(!empty($worklist['fetch']))
@@ -832,11 +861,10 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
         if($objects === false)
         {
           $this->lastErr = "Fetching remote objects by ETag failed.";
-          $this->sqlite->query("ROLLBACK TRANSACTION");
+          $sqlite->query("ROLLBACK TRANSACTION");
           return false;
         }
-        if($conf['allowdebug'])
-          dbglog($objects);
+        dbglog($objects);
         $this->insertObjects($conn, $objects);
       }
       
@@ -846,7 +874,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
         $this->deleteEntriesByETag($conn, $worklist['del']);
       }
       
-      $this->sqlite->query("COMMIT TRANSACTION");
+      $sqlite->query("COMMIT TRANSACTION");
       
       $this->updateConnection($connectionId, time(), $syncResponse['getctag']);
       
@@ -908,10 +936,13 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
           $this->lastErr = "Unsupported type.";
           return false;
       }
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       foreach($worklist as $etag => $href)
       {
         $query = "DELETE FROM " . $table . " WHERE etag = ? AND " . $filter . " = ?";
-        $this->sqlite->query($query, $etag, $conn['id']);
+        $sqlite->query($query, $etag, $conn['id']);
       }
       return true;
   }
@@ -1034,9 +1065,12 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
           $this->lastErr = "Unsupported type.";
           return false;
       }
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       $query = "SELECT uri, etag FROM " . $table . " WHERE " . $id . " = ?";
-      $res = $this->sqlite->query($query, $conn['id']);
-      $data = $this->sqlite->res2arr($res);      
+      $res = $sqlite->query($query, $conn['id']);
+      $data = $sqlite->res2arr($res);      
       return $data;
   }
 
@@ -1082,29 +1116,23 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       global $conf;
       if(($this->client->status >= 400) || ($this->client->status < 200))
       {
-          if($conf['allowdebug'])
-            dbglog('Error: Status reported was ' . $this->client->status);
+          dbglog('Error: Status reported was ' . $this->client->status);
           $this->lastErr = "Error: Server reported status ".$this->client->status;
           return false;
       }
       
-      if($conf['allowdebug'])
-      {
-        dbglog($this->client->status);
-        dbglog($this->client->error);
-      }
+      dbglog($this->client->status);
+      dbglog($this->client->error);
       
       $response = $this->clean_response($this->client->resp_body);
-      if($conf['allowdebug'])
-        dbglog($response);
+      dbglog($response);
       try
       {
         $xml = simplexml_load_string($response);
       }
       catch(Exception $e)
       {
-        if($conf['allowdebug'])
-          dbglog('Exception occured: '.$e->getMessage());
+        dbglog('Exception occured: '.$e->getMessage());
         $this->lastErr = "Exception occured while parsing response: ".$e->getMessage();
         return false;
       }
@@ -1228,8 +1256,11 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       
       io_saveFile($this->syncChangeLogFile.$connectionId, serialize($lastSynced));
       
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       $query = "UPDATE connections SET lastsynced = ?, ctag = ? WHERE id = ?";
-      $res = $this->sqlite->query($query, $lastSynced, $ctag, $connectionId);
+      $res = $sqlite->query($query, $lastSynced, $ctag, $connectionId);
       if($res !== false)
         return true;
       $this->lastErr = "Error updating connection";
@@ -1254,10 +1285,13 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
         $this->lastErr = "Couldn't parse calendar data";
         return false;
       }
-            
+
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       $query = "INSERT INTO calendarobjects (calendardata, uri, calendarid, lastmodified, etag, size, componenttype, uid, firstoccurence, lastoccurence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
       $lastmod = new \DateTime($calendarobject['getlastmodified']);
-      $res = $this->sqlite->query($query, $calendarobject['calendar-data'], $calendarobject['href'], $connectionId, $lastmod->getTimestamp(), $calendarobject['getetag'], $extradata['size'], $extradata['componentType'], $extradata['uid'], $extradata['firstOccurence'], $extradata['lastOccurence']);
+      $res = $sqlite->query($query, $calendarobject['calendar-data'], $calendarobject['href'], $connectionId, $lastmod->getTimestamp(), $calendarobject['getetag'], $extradata['size'], $extradata['componentType'], $extradata['uid'], $extradata['firstOccurence'], $extradata['lastOccurence']);
       if($res !== false)
         return true;
       $this->lastErr = "Error inserting object";
@@ -1283,11 +1317,14 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
         return false;
       }
       
+      $sqlite = $this->getDB();
+      if(!$sqlite)
+        return false;
       $query = "INSERT INTO addressbookobjects (contactdata, uri, addressbookid, "
               ."lastmodified, etag, size, formattedname, structuredname) "
               ."VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
       $lastmod = new \DateTime($addressobject['getlastmodified']);
-      $res = $this->sqlite->query($query, 
+      $res = $sqlite->query($query, 
                                   $addressobject['address-data'], 
                                   $addressobject['href'], 
                                   $connectionId, 
@@ -1434,8 +1471,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   public function indexerSyncAllConnections()
   {
       global $conf;
-      if($conf['allowdebug'])
-        dbglog('IndexerSyncAllConnections');
+      dbglog('IndexerSyncAllConnections');
 
       $connections = $this->getConnections();
       foreach($connections as $connection)
