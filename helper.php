@@ -13,7 +13,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   
   protected $sqlite = null;
   protected $client = null;
-  protected $client_headers = '';
+  protected $client_headers = array();
   protected $lastErr = '';
   protected $syncChangeLogFile;
   
