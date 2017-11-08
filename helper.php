@@ -1125,7 +1125,6 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       dbglog($this->client->error);
       
       $response = $this->clean_response($this->client->resp_body);
-      dbglog($response);
       try
       {
         $xml = simplexml_load_string($response);
@@ -1363,8 +1362,13 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    */
   private function clean_response($response)
   {
-      // Strip the namespace prefixes on all XML tags
-      $response = preg_replace('/(<\/*)[^>:]+:/', '$1', $response);
+      dbglog($response);
+      // Gets rid of all namespace definitions 
+      $response = preg_replace('/xmlns[^=]*="[^"]*"/i', '', $response);
+
+      // Gets rid of all namespace references
+      $response = preg_replace('/[a-zA-Z]+:([a-zA-Z]+[=>])/', '$1', $response);
+      dbglog($response);
       return $response;
   }
 
