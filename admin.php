@@ -239,7 +239,8 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
             '<option value="0" '. (($conn['active']) ? '' : 'selected="selected"').'>'.
                 $this->getLang('inactive').'</option>'.
             '</select>'.
-            '</td><td><select name="modwrite['.$conn['id'].']">'.
+            '</td><td><select name="modwrite['.$conn['id'].']"'.
+            (($conn['type'] === 'icsfeed') ? ' disabled' : '').'>'.
             '<option value="1" '. (($conn['write']) ? 'selected="selected"' : '').'>'.
                 $this->getLang('write').'</option>'.
             '<option value="0" '. (($conn['write']) ? '' : 'selected="selected"').'>'.
@@ -275,7 +276,8 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
       ptln('<tr><td>'.$this->getLang('name').'</td><td><input type="text" name="mandn"></td></tr>');
       ptln('<tr><td>'.$this->getLang('type').'</td><td><select name="mantype"><option value="calendar">'.
         $this->getLang('calendar').'</option><option value="contacts">'.
-        $this->getLang('contacts').'</option></select></td></tr>');
+        $this->getLang('contacts').'</option><option value="icsfeed">'.
+        $this->getLang('icsfeed').'</option></select></td></tr>');
       ptln('<tr><td>'.$this->getLang('username').'</td><td><input type="text" name="manusername"></td></tr>');
       ptln('<tr><td>'.$this->getLang('password').'</td><td><input type="password" name="manpassword"></td></tr>');
       ptln('<tr><td></td><td><input type="submit" name="cmd[add]" value="'.$this->getLang('add').'">'.

@@ -42,3 +42,4 @@ $lang['calendar'] = "Calendar";
 $lang['contacts'] = "Address Book";
 $lang['type'] = "Type";
 $lang['empty'] = "Empty";
+$lang['icsfeed'] = "ICS Feed";

@@ -788,14 +788,88 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       
       dbglog('Sync required for ConnectionID: '.$connectionId);
       
-      if(($conn['type'] !== 'contacts') && ($conn['type'] !== 'calendar'))
+      if(($conn['type'] !== 'contacts') && ($conn['type'] !== 'calendar')
+        && ($conn['type'] !== 'icsfeed'))
       {
         $this->lastErr = "Unsupported connection type found: ".$conn['type'];
         return false;
       }
       
-      // Perform the sync
-
+      // Check if we are dealing with an ICS feed
+      
+      if($conn['type'] === 'icsfeed')
+      {
+        return $this->syncConnectionFeed($conn, $force);
+      }
+      else 
+      {
+        // Perform the sync
+        return $this->syncConnectionDAV($conn, $force, $deleteBeforeSync);
+      }
+  }
+  
+  /**
+   * Sync connection as ICS Feed
+   * @param $conn array the connection parameters
+   * @param $force bool force syncing even if it's not required
+   * @return true on success, otherwise false
+   */
+  private function syncConnectionFeed($conn, $force = false)
+  {
+    dbglog('Sync ICS Feed');
+    $this->setupClient($conn, null, null, null);
+    $resp = $this->client->sendRequest($conn['uri']);
+    if(($this->client->status >= 400) || ($this->client->status < 200))
+    {
+      dbglog('Error: Status reported was ' . $this->client->status);
+      $this->lastErr = "Error: Server reported status ".$this->client->status;
+      return false;
+    }
+    $caldata = $this->client->resp_body;
+    dbglog($caldata);
+    require_once(DOKU_PLUGIN.'webdavclient/vendor/autoload.php');
+    
+    $vObject = \Sabre\VObject\Reader::read($caldata);
+    
+    $sqlite = $this->getDB();
+    if(!$sqlite)
+      return false;
+      
+    $sqlite->query("BEGIN TRANSACTION");
+    // Delete local entries
+    $query = "DELETE FROM calendarobjects WHERE calendarid = ?";
+    $sqlite->query($query, $connectionId);
+        
+    foreach ($vObject->getComponents() as $component) 
+    {
+        $componentType = $component->name;
+        if($componentType === 'VEVENT')
+        {
+            $calendarData = array();
+            $calendarObject = new \Sabre\VObject\Component\VCalendar();
+            $calendarObject->add($component);
+            $calendarData['calendar-data'] = $calendarObject->serialize();
+            $calendarData['href'] = $conn['uri'];
+            $calendarData['getetag'] = md5($calendarData['calendar-data']);
+            $this->object2calendar($conn['id'], $calendarData);
+        }
+    }
+    $sqlite->query("COMMIT TRANSACTION");
+      
+    $this->updateConnection($conn['id'], time());
+    return true;
+  }
+  
+  /**
+   * Sync connection via DAV
+   * @param $conn array the connection parameters
+   * @param $force bool force syncing even if it's not required
+   * @param $deleteBeforeSync bool delete calendar entries before sync
+   * @return true on success, otherwise false
+   */
+  private function syncConnectionDAV($conn, $force = false,
+                                     $deleteBeforeSync = false)
+  {
       $syncResponse = $this->getCollectionStatusForConnection($conn);
       
       // If the server supports getctag, we can check using the ctag if something has changed
@@ -805,7 +879,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
           if(($conn['ctag'] === $syncResponse['getctag']) && !$force)
           {
             dbglog('CTags match, no need to sync');
-            $this->updateConnection($connectionId, time(), $conn['ctag']);
+            $this->updateConnection($conn['id'], time(), $conn['ctag']);
             $this->lastErr = "CTags match, there is no need to sync";
             return false;
           }
@@ -876,7 +950,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       
       $sqlite->query("COMMIT TRANSACTION");
       
-      $this->updateConnection($connectionId, time(), $syncResponse['getctag']);
+      $this->updateConnection($conn['id'], time(), $syncResponse['getctag']);
       
       return true;
   }
@@ -1033,7 +1107,8 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       $this->client->headers = $this->client_headers;
       foreach($headers as $header => $content)
         $this->client->headers[$header] = $content;
-      $this->client->headers['Content-Type'] = $ct;
+      if(!is_null($ct))
+        $this->client->headers['Content-Type'] = $ct;
       if(!is_null($depth))
         $this->client->headers['Depth'] = $depth;
       if(!is_null($cl))
