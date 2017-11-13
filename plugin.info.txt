@@ -1,7 +1,7 @@
 base	webdavclient
 author  Andreas Boehler
 email   dev@aboehler.at
-date    2017-11-10
+date    2017-11-13
 name    Generic WebDAV Client PlugIn
 desc    Sync and subscribe to remote CalDAV and CardDAV servers
 url     http://www.dokuwiki.org/plugin:webdavclient

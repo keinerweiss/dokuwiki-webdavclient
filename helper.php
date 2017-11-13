@@ -838,7 +838,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
     $sqlite->query("BEGIN TRANSACTION");
     // Delete local entries
     $query = "DELETE FROM calendarobjects WHERE calendarid = ?";
-    $sqlite->query($query, $connectionId);
+    $sqlite->query($query, $conn['id']);
         
     foreach ($vObject->getComponents() as $component) 
     {
@@ -906,12 +906,12 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
         if($conn['type'] === 'calendar')
         {
           $query = "DELETE FROM calendarobjects WHERE calendarid = ?";
-          $sqlite->query($query, $connectionId);
+          $sqlite->query($query, $conn['id']);
         }
         elseif($conn['type'] === 'contacts')
         {
           $query = "DELETE FROM addressbookobjects WHERE addressbookid = ?";
-          $sqlite->query($query, $connectionId);
+          $sqlite->query($query, $conn['id']);
         }
       }
       
