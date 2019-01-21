@@ -438,7 +438,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    * Modify an existing connection, overwriting previously defined values
    * 
    * @param int $connId The connection ID to modify
-   * @param string $uri The URI to set
+   * @param string $permission The page to take the permissions from
    * @param string $displayname The new Display Name
    * @param string $syncinterval The sync interval
    * @param string $write If it should be writable
@@ -446,13 +446,13 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
    * 
    * @return boolean True on success, otherwise false
    */
-  public function modifyConnection($connId, $uri, $displayname, $syncinterval, $write, $active)
+  public function modifyConnection($connId, $permission, $displayname, $syncinterval, $write, $active)
   {
       $sqlite = $this->getDB();
       if(!$sqlite)
         return false;
-      $query = "UPDATE connections SET uri = ?, displayname = ?, syncinterval = ?, write = ?, active = ? WHERE id = ?";
-      $res = $sqlite->query($query, $uri, $displayname, $syncinterval, $write, $active, $connId);
+      $query = "UPDATE connections SET permission = ?, displayname = ?, syncinterval = ?, write = ?, active = ? WHERE id = ?";
+      $res = $sqlite->query($query, $permission, $displayname, $syncinterval, $write, $active, $connId);
       if($res !== false)
         return true;
 
@@ -471,7 +471,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       $sqlite = $this->getDB();
       if(!$sqlite)
         return false;
-      $query = "SELECT id, uri, displayname, description, synctoken, username, password, dwuser, type, syncinterval, lastsynced, ctag, active, write FROM connections";
+      $query = "SELECT id, uri, displayname, description, synctoken, username, password, dwuser, type, syncinterval, lastsynced, ctag, active, write, permission FROM connections";
       $res = $sqlite->query($query);
       return $sqlite->res2arr($res);
   }
@@ -489,7 +489,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
       $sqlite = $this->getDB();
       if(!$sqlite)
         return false;
-      $query = "SELECT id, uri, displayname, description, synctoken, username, password, dwuser, type, syncinterval, lastsynced, ctag, active, write FROM connections WHERE id = ?";
+      $query = "SELECT id, uri, displayname, description, synctoken, username, password, dwuser, type, syncinterval, lastsynced, ctag, active, write, permission FROM connections WHERE id = ?";
       $res = $sqlite->query($query, $connectionId);
       return $sqlite->res2row($res);
   }

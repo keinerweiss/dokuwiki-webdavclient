@@ -43,3 +43,4 @@ $lang['contacts'] = "Address Book";
 $lang['type'] = "Type";
 $lang['empty'] = "Empty";
 $lang['icsfeed'] = "ICS Feed";
+$lang['permission'] = "Page for Permissions";

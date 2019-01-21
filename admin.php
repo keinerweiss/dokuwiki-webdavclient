@@ -85,11 +85,11 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
           case 'modify':
             $connid = $param;
             $dn = $_REQUEST['moddn'][$connid];
-            $uri = $_REQUEST['moduri'][$connid];
+            $permission = $_REQUEST['modperm'][$connid];
             $syncinterval = $_REQUEST['modsyncinterval'][$connid];
             $write = $_REQUEST['modwrite'][$connid];
             $active = $_REQUEST['modactive'][$connid];
-            $this->hlp->modifyConnection($connid, $uri, $dn, $syncinterval, $write, $active);
+            $this->hlp->modifyConnection($connid, $permission, $dn, $syncinterval, $write, $active);
             break;
           case 'add':
             // FIXME: Should we sanity-check the settings and query the server for correctness first?
@@ -220,9 +220,8 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
       
       ptln('<tr>');
       ptln('<th>'.$this->getLang('id').'</th><th>'.$this->getLang('name').'</th><th>'.
-      $this->getLang('uri').'</th><th>'.$this->getLang('username').'</th><th>'.
       $this->getLang('syncinterval').'</th><th>'.$this->getLang('active').
-        '</th><th>'.$this->getLang('write').'</th><th>'.$this->getLang('action').'</th>');
+        '</th><th>'.$this->getLang('write').'</th><th>'.$this->getLang('permission').'</th><th>'.$this->getLang('action').'</th>');
       ptln('</tr>');
       
       foreach($connections as $conn)
@@ -230,8 +229,6 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
           ptln('<tr>');
           ptln('  <td>'.hsc($conn['id']).
             '</td><td><input type="text" name="moddn['.$conn['id'].']" value="'.$conn['displayname'].'">'.
-            '</td><td><input type="text" name="moduri['.$conn['id'].']" value="'.$conn['uri'].'">'.
-            '</td><td>'.hsc($conn['username']).
             '</td><td><input type="text" size="5" name="modsyncinterval['.$conn['id'].']" value="'.$conn['syncinterval'].'">'.
             '</td><td><select name="modactive['.$conn['id'].']">'.
             '<option value="1" '. (($conn['active']) ? 'selected="selected"' : '').'>'.
@@ -246,6 +243,7 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
             '<option value="0" '. (($conn['write']) ? '' : 'selected="selected"').'>'.
                 $this->getLang('nowrite').'</option>'.
             '</select>'.
+            '</td><td><input type="text" name="modperm['.$conn['id'].']" value="'.$conn['permission'].'">'.
             '</td><td><input type="submit" name="cmd[modify]['.$conn['id'].']" value="'.
             $this->getLang('modify').'" /><input type="submit" name="cmd[delete]['.$conn['id'].']" value="'.
             $this->getLang('delete').'" /><input type="submit" name="cmd[forcesync]['.$conn['id'].']" value="'.
