@@ -20,7 +20,7 @@ class helper_plugin_webdavclient extends DokuWiki_Plugin {
   /**
     * Constructor to load the configuration
     */
-  public function helper_plugin_webdavclient() {
+  public function __construct() {
     global $conf;
 
     $this->syncChangeLogFile = $conf['metadir'].'/.webdavclient/synclog';

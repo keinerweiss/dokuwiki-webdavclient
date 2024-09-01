@@ -13,9 +13,9 @@ class action_plugin_webdavclient extends DokuWiki_Action_Plugin {
   protected $hlp = null;
   
   // Load the helper plugin
-  public function action_plugin_webdavclient() {
+  public function __construct() {
     
-    $this->hlp =& plugin_load('helper', 'webdavclient');
+    $this->hlp = plugin_load('helper', 'webdavclient');
         
   }
    

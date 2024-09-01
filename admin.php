@@ -21,8 +21,8 @@ class admin_plugin_webdavclient extends DokuWiki_Admin_Plugin {
     /**
      * Constructor. Load helper plugin
      */
-    function admin_plugin_webdavclient(){
-        $this->hlp =& plugin_load('helper', 'webdavclient');
+    function __construct(){
+        $this->hlp = plugin_load('helper', 'webdavclient');
         if(is_null($this->hlp))
           msg('Error loading WebDAV Client helper module!');
     }
